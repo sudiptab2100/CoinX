@@ -1,7 +1,3 @@
-/**
- *Submitted for verification at BscScan.com on 2021-04-22
-*/
-
 //SPDX-License-Identifier: Unlicensed
 
 pragma solidity >=0.6.8;
@@ -825,7 +821,72 @@ library Utils {
 }
 
 
-contract CoinX is Context, IBEP20, Ownable {
+/**
+ * @dev Contract module that helps prevent reentrant calls to a function.
+ *
+ * Inheriting from `ReentrancyGuard` will make the {nonReentrant} modifier
+ * available, which can be applied to functions to make sure there are no nested
+ * (reentrant) calls to them.
+ *
+ * Note that because there is a single `nonReentrant` guard, functions marked as
+ * `nonReentrant` may not call one another. This can be worked around by making
+ * those functions `private`, and then adding `external` `nonReentrant` entry
+ * points to them.
+ *
+ * TIP: If you would like to learn more about reentrancy and alternative ways
+ * to protect against it, check out our blog post
+ * https://blog.openzeppelin.com/reentrancy-after-istanbul/[Reentrancy After Istanbul].
+ */
+abstract contract ReentrancyGuard {
+    // Booleans are more expensive than uint256 or any type that takes up a full
+    // word because each write operation emits an extra SLOAD to first read the
+    // slot's contents, replace the bits taken up by the boolean, and then write
+    // back. This is the compiler's defense against contract upgrades and
+    // pointer aliasing, and it cannot be disabled.
+
+    // The values being non-zero value makes deployment a bit more expensive,
+    // but in exchange the refund on every call to nonReentrant will be lower in
+    // amount. Since refunds are capped to a percentage of the total
+    // transaction's gas, it is best to keep them low in cases like this one, to
+    // increase the likelihood of the full refund coming into effect.
+    uint256 private constant _NOT_ENTERED = 1;
+    uint256 private constant _ENTERED = 2;
+
+    uint256 private _status;
+
+    constructor () public {
+        _status = _NOT_ENTERED;
+    }
+
+    /**
+     * @dev Prevents a contract from calling itself, directly or indirectly.
+     * Calling a `nonReentrant` function from another `nonReentrant`
+     * function is not supported. It is possible to prevent this from happening
+     * by making the `nonReentrant` function external, and make it call a
+     * `private` function that does the actual work.
+     */
+    modifier nonReentrant() {
+        // On the first call to nonReentrant, _notEntered will be true
+        require(_status != _ENTERED, "ReentrancyGuard: reentrant call");
+
+        // Any calls to nonReentrant after this point will fail
+        _status = _ENTERED;
+
+        _;
+
+        // By storing the original value once again, a refund is triggered (see
+        // https://eips.ethereum.org/EIPS/eip-2200)
+        _status = _NOT_ENTERED;
+    }
+
+    modifier isHuman() {
+        require(tx.origin == msg.sender, "sorry humans only");
+        _;
+    }
+}
+
+
+contract CoinX is Context, IBEP20, Ownable, ReentrancyGuard {
     using SafeMath for uint256;
     using Address for address;
 
@@ -872,14 +933,20 @@ contract CoinX is Context, IBEP20, Ownable {
         inSwapAndLiquify = false;
     }
 
+    modifier onlyCommunity {
+        require(msg.sender == communityWallet, "Must be the Community Wallet");
+        _;
+    }
+
     // UniSwap testnet, mainnet router address "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"
-    // PancakeSwap testnet router address "0xD99D1c33F9fC3444f8101754aBC46c52416550D1"
-    // PancakeSwap mainnet router address "0x05fF2B0DB69458A0750badebc4f9e13aDd608C7F"
+    // PancakeSwap testnet router(v1) address "0xD99D1c33F9fC3444f8101754aBC46c52416550D1"
+    // PancakeSwap mainnet router(v1) address "0x05fF2B0DB69458A0750badebc4f9e13aDd608C7F"
+    // PancakeSwap mainnet router(v2) address "0x10ED43C718714eb63d5aA57B78B54704E256024E"
     constructor () public {
 
         _rOwned[_msgSender()] = _rTotal;
 
-        devWallet = 0x5bb2BC3165302808C069B46B085e56172634E118; // Address of Dev Wallet
+        communityWallet = 0x5bb2BC3165302808C069B46B085e56172634E118; // Address of Community Wallet
 
         IPancakeRouter02 _pancakeRouter = IPancakeRouter02(0xD99D1c33F9fC3444f8101754aBC46c52416550D1);
         // Create a pancake pair for this new token
@@ -891,6 +958,9 @@ contract CoinX is Context, IBEP20, Ownable {
         _isExcludedFromFee[owner()] = true;
         _isExcludedFromFee[address(this)] = true;
         _isExcludedFromFee[address(0)] = true;
+        _isExcludedFromFee[0x000000000000000000000000000000000000dEaD] = true;
+        _isExcluded[0x000000000000000000000000000000000000dEaD] = true;
+        _isExcluded[address(0)] = true;
 
         emit Transfer(address(0), _msgSender(), _tTotal);
     }
@@ -1017,9 +1087,9 @@ contract CoinX is Context, IBEP20, Ownable {
         _updateTotalFee();
     }
 
-    function setDevPercent(uint256 fee) external onlyOwner {
-        _dev = fee;
-        if(!devFeeEnabled) _dev = 0;
+    function setCommunityPercent(uint256 fee) external onlyCommunity {
+        _community = fee;
+        if(!communityFeeEnabled) _community = 0;
         _updateTotalFee();
     }
 
@@ -1038,18 +1108,18 @@ contract CoinX is Context, IBEP20, Ownable {
         _updateTotalFee();
     }
 
-    function setDevWalletTo(address addr) public onlyOwner {
-        devWallet = addr;
+    function setCommunityWalletTo(address addr) public onlyCommunity {
+        communityWallet = addr;
     }
 
-    function disableDevFeePermanently() public onlyOwner {
-        _dev = 0;
-        devFeeEnabled = false;
+    function disableCommunityFeePermanently() public onlyCommunity {
+        _community = 0;
+        communityFeeEnabled = false;
         _updateTotalFee();
     }
 
     function _updateTotalFee() private {
-        _totalFee = _redistribute.add(_dev).add(_burn).add(_liquidityPool).add(_bnbPool);
+        _totalFee = _redistribute.add(_community).add(_burn).add(_liquidityPool).add(_bnbPool);
     }
 
     function setSwapAndLiquifyEnabled(bool _enabled) public onlyOwner {
@@ -1190,14 +1260,13 @@ contract CoinX is Context, IBEP20, Ownable {
     }
 
     function _executeFee(uint256 rFee, uint256 tFee) private {
-        uint256 toThisContract = _liquidityPool.add(_bnbPool).add(_dev).add(_burn);
+        uint256 toThisContract = _liquidityPool.add(_bnbPool).add(_community).add(_burn);
         _takeToThisContract(tFee.mul(toThisContract).div(_totalFee)); // Adding all fees(except redistribution fee) to the contract
         _reflectFee(rFee.mul(_redistribute).div(_totalFee), tFee.mul(_redistribute).div(_totalFee)); // Distribute To Holders in Token
-        _tokenTransfer(address(this), devWallet, tFee.mul(_dev).div(_totalFee), false); // Transfer To Dev Wallet from the contract
-        _tokenTransfer(address(this), address(0), tFee.mul(_burn).div(_totalFee), false); // Burn from contract
+        _tokenTransfer(address(this), 0x000000000000000000000000000000000000dEaD, tFee.mul(_burn).div(_totalFee), false); // Burn from contract
     }
 
-    uint256 public rewardCycleBlock = 7 days;
+    uint256 public rewardCycleBlock = 3 days;
     uint256 public easyRewardCycleBlock = 1 days;
     uint256 public threshHoldTopUpRate = 2; // 2 percent
     uint256 public _maxTxAmount = _tTotal; // should be 0.05% percent per transaction, will be set again at activateContract() function
@@ -1209,16 +1278,16 @@ contract CoinX is Context, IBEP20, Ownable {
     uint256 public winningDoubleRewardPercentage = 5;
 
     uint256 public _redistribute = 2;
-    uint256 public _dev = 1;
+    uint256 public _community = 1;
     uint256 public _burn = 1;
     uint256 public _liquidityPool = 4;
     uint256 public _bnbPool = 6;
-    uint256 public _totalFee = _redistribute.add(_dev).add(_burn).add(_liquidityPool).add(_bnbPool);
+    uint256 public _totalFee = _redistribute.add(_community).add(_burn).add(_liquidityPool).add(_bnbPool);
 
-    address public devWallet;
-    bool public devFeeEnabled = true;
+    address public communityWallet;
+    bool public communityFeeEnabled = true;
 
-    uint256 public rewardThreshold = 2 ether;
+    uint256 public rewardThreshold = 1 ether;
 
     uint256 minTokenNumberToSell = _tTotal.mul(1).div(10000); // 0.01% max tx amount will trigger swap and add liquidity
 
@@ -1246,7 +1315,7 @@ contract CoinX is Context, IBEP20, Ownable {
         return easyRewardCycleBlock;
     }
 
-    function claimBNBReward() public {
+    function claimBNBReward() public isHuman nonReentrant {
         require(nextAvailableClaimDate[msg.sender] <= block.timestamp, 'Error: next available not reached');
         require(balanceOf(msg.sender) >= 0, 'Error: must own MRAT to claim reward');
 
@@ -1329,9 +1398,9 @@ contract CoinX is Context, IBEP20, Ownable {
             contractTokenBalance = minTokenNumberToSell;
 
             // Added To Pancake Pool
-            uint256 pancakeLiq = contractTokenBalance.mul(_liquidityPool).div(_bnbPool.add(_liquidityPool));
+            uint256 pancakeLiq = contractTokenBalance.mul(_liquidityPool).div(_bnbPool.add(_liquidityPool).add(_community));
             // Added To BNB Reward Pool
-            uint256 bnbReward = contractTokenBalance.sub(pancakeLiq);
+            uint256 bnbAndCommunityReward = contractTokenBalance.sub(pancakeLiq);
 
             uint256 pancakeLiqOneHalf = pancakeLiq.div(2);
             uint256 pancakeLiqOtherHalf = pancakeLiq.sub(pancakeLiqOneHalf);
@@ -1342,8 +1411,17 @@ contract CoinX is Context, IBEP20, Ownable {
             uint256 deltaBalance = address(this).balance.sub(initialBalance);
             Utils.addLiquidity(address(pancakeRouter), owner(), pancakeLiqOneHalf, deltaBalance);
 
+            initialBalance = address(this).balance;
             // Added To BNB Reward Pool
-            Utils.swapTokensForEth(address(pancakeRouter), bnbReward);
+            Utils.swapTokensForEth(address(pancakeRouter), bnbAndCommunityReward);
+            deltaBalance = address(this).balance.sub(initialBalance);
+
+            uint256 communityBal = deltaBalance.mul(_community).div(_community.add(_bnbPool));
+            // payable(communityWallet).transfer(communityBal);
+            if(communityBal > 0) {
+                (bool sent,) = address(communityWallet).call{value : communityBal}("");
+                require(sent, 'Error: Cannot Send to Community');
+            }
 
             emit SwapAndLiquify(pancakeLiqOtherHalf, deltaBalance, pancakeLiqOneHalf);
         }
@@ -1352,7 +1430,7 @@ contract CoinX is Context, IBEP20, Ownable {
     function activateMainnet() public onlyOwner {
         // reward claim
         disableEasyRewardFrom = block.timestamp + 1 weeks;
-        rewardCycleBlock = 7 days;
+        rewardCycleBlock = 3 days;
         easyRewardCycleBlock = 1 days;
 
         winningDoubleRewardPercentage = 5;
@@ -1360,7 +1438,7 @@ contract CoinX is Context, IBEP20, Ownable {
         // protocol
         disruptiveCoverageFee = 2 ether;
         disruptiveTransferEnabledFrom = block.timestamp;
-        setMaxTxPercent(5); // 0.05% per transaction
+        setMaxTxPercent(1); // 0.01% per transaction
         setSwapAndLiquifyEnabled(true);
 
         // approve contract
@@ -1378,7 +1456,7 @@ contract CoinX is Context, IBEP20, Ownable {
         // protocol
         disruptiveCoverageFee = 2 ether;
         disruptiveTransferEnabledFrom = block.timestamp;
-        setMaxTxPercent(5);  // 0.05% per transaction
+        setMaxTxPercent(1);  // 0.01% per transaction
         setSwapAndLiquifyEnabled(true);
 
         // approve contract
