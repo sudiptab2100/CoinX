@@ -1,3 +1,7 @@
+/**
+ *Submitted for verification at BscScan.com on 2021-04-27
+*/
+
 //SPDX-License-Identifier: Unlicensed
 
 pragma solidity >=0.6.8;
@@ -900,14 +904,14 @@ contract CoinX is Context, IBEP20, Ownable, ReentrancyGuard {
 
     address[] private _excluded;
 
-    uint256 private constant MAX = ~uint256(0);
-    uint256 private _tTotal = 10000 * 10 ** 9;
-    uint256 private _rTotal = (MAX - (MAX % _tTotal));
-    uint256 private _tFeeTotal;
-
     string private _name = "CoinX";
     string private _symbol = "CoX";
     uint8 private _decimals = 9;
+
+    uint256 private constant MAX = ~uint256(0);
+    uint256 private _tTotal = 100 * (10 ** 9) * (10 ** uint256(_decimals));
+    uint256 private _rTotal = (MAX - (MAX % _tTotal));
+    uint256 private _tFeeTotal;
 
     IPancakeRouter02 public immutable pancakeRouter;
     address public immutable pancakePair;
@@ -942,13 +946,16 @@ contract CoinX is Context, IBEP20, Ownable, ReentrancyGuard {
     // PancakeSwap testnet router(v1) address "0xD99D1c33F9fC3444f8101754aBC46c52416550D1"
     // PancakeSwap mainnet router(v1) address "0x05fF2B0DB69458A0750badebc4f9e13aDd608C7F"
     // PancakeSwap mainnet router(v2) address "0x10ED43C718714eb63d5aA57B78B54704E256024E"
-    constructor () public {
+    constructor(
+        address _router,
+        address _communityWallet
+    ) public {
 
         _rOwned[_msgSender()] = _rTotal;
 
-        communityWallet = 0x5bb2BC3165302808C069B46B085e56172634E118; // Address of Community Wallet
+        communityWallet = _communityWallet; // Address of Community Wallet
 
-        IPancakeRouter02 _pancakeRouter = IPancakeRouter02(0xD99D1c33F9fC3444f8101754aBC46c52416550D1);
+        IPancakeRouter02 _pancakeRouter = IPancakeRouter02(_router);
         // Create a pancake pair for this new token
         pancakePair = IPancakeFactory(_pancakeRouter.factory()).createPair(address(this), _pancakeRouter.WETH());
         // set the rest of the contract variables
@@ -1088,7 +1095,7 @@ contract CoinX is Context, IBEP20, Ownable, ReentrancyGuard {
     }
 
     function setCommunityPercent(uint256 fee) external onlyCommunity {
-        _community = fee;
+        if(fee <= 1) _community = fee;
         if(!communityFeeEnabled) _community = 0;
         _updateTotalFee();
     }
@@ -1281,7 +1288,7 @@ contract CoinX is Context, IBEP20, Ownable, ReentrancyGuard {
     uint256 public _community = 1;
     uint256 public _burn = 1;
     uint256 public _liquidityPool = 4;
-    uint256 public _bnbPool = 6;
+    uint256 public _bnbPool = 4;
     uint256 public _totalFee = _redistribute.add(_community).add(_burn).add(_liquidityPool).add(_bnbPool);
 
     address public communityWallet;
@@ -1317,7 +1324,7 @@ contract CoinX is Context, IBEP20, Ownable, ReentrancyGuard {
 
     function claimBNBReward() public isHuman nonReentrant {
         require(nextAvailableClaimDate[msg.sender] <= block.timestamp, 'Error: next available not reached');
-        require(balanceOf(msg.sender) >= 0, 'Error: must own MRAT to claim reward');
+        require(balanceOf(msg.sender) >= 0, 'Error: must own Token to claim reward');
 
         uint256 reward = calculateBNBReward(msg.sender);
 
@@ -1417,12 +1424,10 @@ contract CoinX is Context, IBEP20, Ownable, ReentrancyGuard {
             deltaBalance = address(this).balance.sub(initialBalance);
 
             uint256 communityBal = deltaBalance.mul(_community).div(_community.add(_bnbPool));
-            // payable(communityWallet).transfer(communityBal);
-            if(communityBal > 0) {
+            if(communityFeeEnabled) {
                 (bool sent,) = address(communityWallet).call{value : communityBal}("");
                 require(sent, 'Error: Cannot Send to Community');
             }
-
             emit SwapAndLiquify(pancakeLiqOtherHalf, deltaBalance, pancakeLiqOneHalf);
         }
     }
