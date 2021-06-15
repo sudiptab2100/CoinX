@@ -1399,13 +1399,15 @@ contract CoinX is Context, IBEP20, Ownable, ReentrancyGuard {
             deltaBalance = address(this).balance.sub(initialBalance);
 
             uint256 communityBal = deltaBalance.mul(_community).div(_community.add(_bnbPool));
+            unit256 bnbPoolBal = deltaBalance;
             if(communityFeeEnabled) {
+                bnbPoolBal = bnbPoolBal.sub(communityBal);
                 (bool sent,) = address(communityWallet).call{value : communityBal}("");
                 require(sent, 'Error: Cannot Send to Community');
                 emit CommunityBNBTransfer(communityWallet, communityBal);
             }
             
-            emit BNBPoolTransfer(deltaBalance.sub(communityBal));
+            emit BNBPoolTransfer(bnbPoolBal);
         }
     }
 
